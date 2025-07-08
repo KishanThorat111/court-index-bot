@@ -1,0 +1,26 @@
+# Python specific ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environment
+venv/
+env/
+*.env
+.env # Specifically ignore the .env file for your BOT_TOKEN
+
+# IDE-specific files (VS Code in your case)
+.vscode/
+
+# Operating System generated files
+.DS_Store # macOS
+Thumbs.db # Windows
+
+# Generated files / Output
+data/processed/
+*.pdf # Catches any PDF files, but specifically data/processed/ is important here.
+*.log
