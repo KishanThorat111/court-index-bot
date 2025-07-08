@@ -316,6 +316,8 @@
 
 
 
+# # telegram_bot.py 
+
 import os
 import re
 import logging
@@ -333,8 +335,7 @@ from textwrap import wrap
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# --- NEW: Get Render's environment variables for webhooks ---
-# Render automatically provides the service's public URL and a port to listen on.
+# --- Get Render's environment variables for webhooks ---
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_HOSTNAME") # Render provides this as the hostname
 PORT = int(os.getenv("PORT", "8080")) # Render provides a PORT env var, default to 8080 if not found
 
@@ -609,9 +610,7 @@ def main():
     # Ensure WEBHOOK_URL is available for the bot to set itself up with Telegram
     if not WEBHOOK_URL:
         logger.error("RENDER_EXTERNAL_HOSTNAME environment variable is not set. Cannot run in webhook mode.")
-        # Fallback to polling for local development, or raise an error for deployment
-        # For deployment, this should ideally not happen if Render is configured correctly.
-        logger.info("Falling back to polling mode. This is not recommended for Render deployment.")
+        logger.info("Falling back to polling mode for local development. This is not recommended for Render deployment.")
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -619,7 +618,12 @@ def main():
         app.run_polling()
         return
 
-    app = ApplicationBuilder().token(BOT_TOKEN).webhook_url(f"https://{WEBHOOK_URL}/telegram").build()
+    # Build the Application object first
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Set the webhook URL after building the application
+    # The webhook_url should be the full URL including the path
+    full_webhook_url = f"https://{WEBHOOK_URL}/telegram"
 
     # Add handlers
     app.add_handler(CommandHandler("start", start))
@@ -627,7 +631,13 @@ def main():
 
     # Start the webhook server
     logger.info(f"🤖 Court Index Bot running in webhook mode on port {PORT} at path /telegram...")
-    app.run_webhook(listen="0.0.0.0", port=PORT, url_path="telegram")
+    # The run_webhook method takes the URL, listen address, and port
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path="telegram",
+        webhook_url=full_webhook_url # Pass the full URL here
+    )
 
 if __name__ == "__main__":
     main()
