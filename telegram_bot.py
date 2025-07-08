@@ -676,7 +676,7 @@ PORT = int(os.getenv("PORT", "8080")) # Render provides a PORT env var, default 
 
 # Logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s-%(name)s-%(levelname)s-%(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
@@ -713,35 +713,36 @@ def normalize_date(text):
     Handles various ordinal indicators (st, nd, rd, th) and month abbreviations,
     and different common date formats.
     """
-    # Initial cleaning: strip whitespace, remove trailing ')' (if any), and common punctuation
-    original_text = text.strip().rstrip(')').replace('.', '').replace(',', '').strip()
+    # Initial cleaning: strip whitespace, remove trailing ')' (if any)
+    original_text = text.strip().rstrip(')').strip()
     
-    # Remove ordinal indicators (st, nd, rd, th) more robustly
+    # Replace common punctuation with spaces, then normalize multiple spaces to single space
+    cleaned_text = re.sub(r'[.,/\\-]', ' ', original_text).strip()
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+
+    # Remove ordinal indicators (st, nd, rd, th)
     # This regex looks for the ordinal at the end of a digit sequence and ensures it's followed by a word boundary
-    cleaned_ordinal = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", original_text, flags=re.IGNORECASE).strip()
+    cleaned_ordinal = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", cleaned_text, flags=re.IGNORECASE).strip()
+    # Normalize spaces again after ordinal removal, just in case
+    cleaned_ordinal = re.sub(r'\s+', ' ', cleaned_ordinal).strip()
 
     # Define a comprehensive list of common date formats to try
     # Order matters: try more specific/common formats first
     date_formats = [
-        # Formats with full month names
-        "%d %B %Y",  # "5 August 2025"
-        "%d-%B-%Y",  # "05-August-2025"
-        "%d/%B/%Y",  # "05/August/2025"
-        "%B %d, %Y", # "August 5, 2025"
-        
-        # Formats with abbreviated month names
-        "%d %b %Y",  # "5 Aug 2025"
-        "%d-%b-%Y",  # "05-Aug-2025"
-        "%d/%b/%Y",  # "05/Aug/2025"
-        "%b %d, %Y", # "Aug 5, 2025"
+        # Formats with full month names (e.g., "4 November 2024")
+        "%d %B %Y",  
+        "%B %d %Y",  
+        "%B %d, %Y", # Handles "November 4, 2024" if comma was replaced by space
 
-        # Numeric formats
-        "%d-%m-%Y",  # "05-08-2025"
-        "%d/%m/%Y",  # "05/08/2025"
-        "%m-%d-%Y",  # "08-05-2025" (US format)
-        "%m/%d/%Y",  # "08/05/2025" (US format)
-        "%Y-%m-%d",  # "2025-08-05"
-        "%Y/%m/%d",  # "2025/08/05"
+        # Formats with abbreviated month names (e.g., "4 Nov 2024")
+        "%d %b %Y",  
+        "%b %d %Y",  
+        "%b %d, %Y", # Handles "Nov 4, 2024" if comma was replaced by space
+
+        # Numeric formats (with varying separators replaced by spaces)
+        "%d %m %Y",  # "04 11 2024"
+        "%m %d %Y",  # "11 04 2024" (US format)
+        "%Y %m %d",  # "2024 11 04"
     ]
 
     dt = None
@@ -753,18 +754,9 @@ def normalize_date(text):
         except ValueError:
             continue # Try next format
 
-    # If still not parsed, try parsing the original text (in case ordinal removal was too aggressive for some edge case)
-    # This handles cases where the ordinal might be part of a non-standard but recognizable pattern
     if dt is None:
-        for fmt in date_formats:
-            try:
-                dt = datetime.strptime(original_text, fmt)
-                break
-            except ValueError:
-                continue
-
-    if dt is None:
-        return None # No valid format found after trying all patterns
+        # If no format worked, return None
+        return None 
 
     # Calculate ordinal suffix for the output format
     day = dt.day
@@ -884,33 +876,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Data Collection Logic ---
     last_asked_for = session.get("last_asked_for")
     
-    if last_asked_for and ":" not in text:
+    if last_asked_for and ":" not in text: # User is responding to a specific prompt (e.g., just the date)
         if last_asked_for == "hearing_date":
             parsed_date = normalize_date(text)
             if parsed_date:
                 session[last_asked_for] = parsed_date
+                session.pop("last_asked_for", None) # Date is now valid, clear prompt state
             else:
                 await update.message.reply_text(
                     "❌ That doesn't look like a valid date format. "
                     "Please use 'Dayth Month Year' (e.g., '4th July 2024')."
                 )
-                return
+                # Keep last_asked_for as 'hearing_date' so it asks again
+                return # Exit, waiting for new date input
         elif last_asked_for in ["claimants", "defendants"]:
             session[last_asked_for] = [v.strip() for v in text.split(",")]
+            session.pop("last_asked_for", None)
         else:
             session[last_asked_for] = text
-        session.pop("last_asked_for", None)
+            session.pop("last_asked_for", None)
 
-    elif ":" in text:
+    elif ":" in text: # User provided a multi-line input
         parsed_info = extract_info_from_lines(text.splitlines())
-        if "invalid_date" in parsed_info:
+        
+        # Always update session with whatever valid info was parsed from the multi-line input
+        # Remove 'invalid_date' from parsed_info before updating session, as it's a temporary flag
+        invalid_date_val = parsed_info.pop("invalid_date", None)
+        session.update(parsed_info) # Save all valid fields
+
+        if invalid_date_val: # If an invalid date was found in the multi-line input
             await update.message.reply_text(
-                f"❌ I couldn't understand the hearing date: '{parsed_info['invalid_date']}'. "
+                f"❌ I couldn't understand the hearing date: '{invalid_date_val}'. "
                 f"Please use a format like '4th July 2024' or type 'clear' to restart."
             )
-            session["last_asked_for"] = "hearing_date"
-            return
-        session.update(parsed_info)
+            session["last_asked_for"] = "hearing_date" # Set state to re-ask for date
+            return # Exit, waiting for new date input
+        # If no invalid_date, continue to check for other missing fields or confirm
 
     # --- Determine Next Action: Ask for Missing Info or Confirm ---
     missing_fields = get_missing_fields(session)
