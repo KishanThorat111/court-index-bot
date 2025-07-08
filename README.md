@@ -1,7 +1,3 @@
-
------
-
-````markdown
 # 🏛️ Court Index Pro - Your Automated Legal Index Generator 🚀
 
 **Effortlessly create professional Court Index Title Pages with a simple Telegram bot!**
@@ -220,6 +216,3 @@ If you have any questions, encounter issues, or just want to say hello, feel fre
 -----
 
 **Happy Indexing\!** 🥳
-
-```
-```
