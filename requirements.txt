@@ -1,3 +1,5 @@
 python-telegram-bot==22.2
 python-dotenv==1.0.1
 reportlab==4.1.0
+# Add tornado explicitly for webhooks with PTB 22.x
+tornado
