@@ -710,23 +710,63 @@ SAMPLE_PROMPT = (
 def normalize_date(text):
     """
     Normalizes a date string into a consistent format (e.g., '4th July 2024').
-    Handles various ordinal indicators (st, nd, rd, th) and month abbreviations.
+    Handles various ordinal indicators (st, nd, rd, th) and month abbreviations,
+    and different common date formats.
     """
-    cleaned_text = text.strip().rstrip(')')
-    # Remove ordinal indicators (st, nd, rd, th)
-    cleaned = re.sub(r"(st|nd|rd|th)", "", cleaned_text, flags=re.IGNORECASE).strip()
+    # Initial cleaning: strip whitespace, remove trailing ')' (if any), and common punctuation
+    original_text = text.strip().rstrip(')').replace('.', '').replace(',', '').strip()
+    
+    # Remove ordinal indicators (st, nd, rd, th) more robustly
+    # This regex looks for the ordinal at the end of a digit sequence and ensures it's followed by a word boundary
+    cleaned_ordinal = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", original_text, flags=re.IGNORECASE).strip()
+
+    # Define a comprehensive list of common date formats to try
+    # Order matters: try more specific/common formats first
+    date_formats = [
+        # Formats with full month names
+        "%d %B %Y",  # "5 August 2025"
+        "%d-%B-%Y",  # "05-August-2025"
+        "%d/%B/%Y",  # "05/August/2025"
+        "%B %d, %Y", # "August 5, 2025"
+        
+        # Formats with abbreviated month names
+        "%d %b %Y",  # "5 Aug 2025"
+        "%d-%b-%Y",  # "05-Aug-2025"
+        "%d/%b/%Y",  # "05/Aug/2025"
+        "%b %d, %Y", # "Aug 5, 2025"
+
+        # Numeric formats
+        "%d-%m-%Y",  # "05-08-2025"
+        "%d/%m/%Y",  # "05/08/2025"
+        "%m-%d-%Y",  # "08-05-2025" (US format)
+        "%m/%d/%Y",  # "08/05/2025" (US format)
+        "%Y-%m-%d",  # "2025-08-05"
+        "%Y/%m/%d",  # "2025/08/05"
+    ]
 
     dt = None
-    # Try parsing with full month name first
-    try:
-        dt = datetime.strptime(cleaned, "%d %B %Y")
-    except ValueError:
-        # If full month name fails, try with abbreviated month name
+    # Try parsing the cleaned string (without ordinals) first
+    for fmt in date_formats:
         try:
-            dt = datetime.strptime(cleaned, "%d %b %Y")
+            dt = datetime.strptime(cleaned_ordinal, fmt)
+            break # Found a valid format, break the loop
         except ValueError:
-            return None # Cannot parse the date with either format
+            continue # Try next format
 
+    # If still not parsed, try parsing the original text (in case ordinal removal was too aggressive for some edge case)
+    # This handles cases where the ordinal might be part of a non-standard but recognizable pattern
+    if dt is None:
+        for fmt in date_formats:
+            try:
+                dt = datetime.strptime(original_text, fmt)
+                break
+            except ValueError:
+                continue
+
+    if dt is None:
+        return None # No valid format found after trying all patterns
+
+    # Calculate ordinal suffix for the output format
     day = dt.day
     if 11 <= day <= 13:
         suffix = "th"
